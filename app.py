@@ -37,10 +37,10 @@ def split_and_prepare(df):
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-    if 'Job title' not in df.columns:
-        st.error("CSV must have a 'Job title' column.")
+    if 'Job Title' not in df.columns:
+        st.error("CSV must have a 'Job Title' column.")
     else:
-        df['group'] = df['Job title'].apply(categorize)
+        df['group'] = df['Job Title'].apply(categorize)
         output_files = split_and_prepare(df)
 
         st.success("Files processed! Download your 15 split files below:")
