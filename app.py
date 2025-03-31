@@ -29,20 +29,26 @@ def categorize(title):
     else:
         return "ops"
 
-def balanced_distribution(df):
-    df = df.sample(frac=1).reset_index(drop=True)  # shuffle for fairness
-    distribution = defaultdict(lambda: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0})
+def perfectly_balanced_distribution(df):
+    df = df.sample(frac=1).reset_index(drop=True)  # shuffle
     output = {account: [] for account in accounts}
+    distribution = defaultdict(lambda: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0})
 
-    # Sort by group for tracking group counts later
-    grouped = df.groupby("group")
-    rows = df.to_dict(orient="records")
+    total_rows = len(df)
+    base = total_rows // len(accounts)
+    remainder = total_rows % len(accounts)
 
-    for i, row in enumerate(rows):
-        account = accounts[i % len(accounts)]
-        output[account].append(row)
-        distribution[account][row["group"]] += 1
-        distribution[account]["total"] += 1
+    split_sizes = [base + 1 if i < remainder else base for i in range(len(accounts))]
+
+    start = 0
+    for i, account in enumerate(accounts):
+        end = start + split_sizes[i]
+        rows = df.iloc[start:end].to_dict(orient="records")
+        output[account] = rows
+        for row in rows:
+            distribution[account][row["group"]] += 1
+            distribution[account]["total"] += 1
+        start = end
 
     return output, distribution
 
@@ -54,7 +60,7 @@ if uploaded_file:
         st.error("CSV must have a 'Job Title' column.")
     else:
         df['group'] = df['Job Title'].apply(categorize)
-        output_map, distribution = balanced_distribution(df)
+        output_map, distribution = perfectly_balanced_distribution(df)
 
         st.success("Files processed! Download your 15 split files below:")
 
