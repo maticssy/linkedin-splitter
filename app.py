@@ -10,8 +10,8 @@ st.title("LinkedIn Daily Prospect Splitter")
 st.markdown("""
 Upload your daily CSV file with 80-100 prospects. The app will:
 1. Categorize by job title into PM, OPEX/CI, and OPS.
-2. Distribute each group (PM, OPEX/CI, OPS) as evenly as possible across 5 LinkedIn accounts.
-3. Ensure perfectly balanced totals and fair distribution per group.
+2. Distribute each group as evenly as possible across 5 LinkedIn accounts.
+3. Ensure both fair group splitting AND perfectly balanced totals.
 4. Provide 15 downloadable CSVs.
 5. Show a summary of the breakdown.
 """)
@@ -29,27 +29,29 @@ def categorize(title):
     else:
         return "ops"
 
-def split_group_evenly(group_df):
-    group_df = group_df.sample(frac=1).reset_index(drop=True)
-    chunks = [[] for _ in range(len(accounts))]
-    for i, (_, row) in enumerate(group_df.iterrows()):
-        chunks[i % len(accounts)].append(row)
-    return chunks
-
-def fair_distribution(df):
+def assign_chunks_balanced(groups):
     output = {account: [] for account in accounts}
     distribution = defaultdict(lambda: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0})
+    account_totals = {account: 0 for account in accounts}
+    rotation_offset = 0
 
-    for group in ["pm", "opex ci", "ops"]:
-        group_df = df[df['group'] == group]
-        group_chunks = split_group_evenly(group_df)
-        for i, chunk in enumerate(group_chunks):
-            account = accounts[i]
+    for group_name, group_df in groups.items():
+        group_df = group_df.sample(frac=1).reset_index(drop=True)
+        chunks = [[] for _ in range(len(accounts))]
+        for i, (_, row) in enumerate(group_df.iterrows()):
+            chunks[i % len(accounts)].append(row)
+
+        # Rotate assignment to balance totals
+        for i, chunk in enumerate(chunks):
+            account = accounts[(i + rotation_offset) % len(accounts)]
             for row in chunk:
                 record = row.to_dict()
                 output[account].append(record)
-                distribution[account][group] += 1
+                distribution[account][group_name] += 1
                 distribution[account]["total"] += 1
+                account_totals[account] += 1
+
+        rotation_offset += 1
 
     return output, distribution
 
@@ -61,7 +63,8 @@ if uploaded_file:
         st.error("CSV must have a 'Job Title' column.")
     else:
         df['group'] = df['Job Title'].apply(categorize)
-        output_map, distribution = fair_distribution(df)
+        groups = {g: df[df['group'] == g] for g in ['pm', 'opex ci', 'ops']}
+        output_map, distribution = assign_chunks_balanced(groups)
 
         st.success("Files processed! Download your 15 split files below:")
 
