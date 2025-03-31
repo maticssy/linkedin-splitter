@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 import io
 import os
+from collections import defaultdict
 
 st.set_page_config(page_title="LinkedIn Prospect Splitter", layout="centered")
 st.title("LinkedIn Daily Prospect Splitter")
@@ -9,9 +10,10 @@ st.title("LinkedIn Daily Prospect Splitter")
 st.markdown("""
 Upload your daily CSV file with 80-100 prospects. The app will:
 1. Categorize by job title into PM, OPEX/CI, and OPS.
-2. Split each group equally among 5 LinkedIn accounts: Arun, Assaf, Chen, Leigh, Meirav.
-3. Provide 15 downloadable CSVs.
-4. Show a summary of the breakdown.
+2. Distribute all contacts as evenly as possible across 5 LinkedIn accounts: Arun, Assaf, Chen, Leigh, Meirav.
+3. Ensure balanced totals across accounts, even if group sizes vary.
+4. Provide 15 downloadable CSVs.
+5. Show a summary of the breakdown.
 """)
 
 uploaded_file = st.file_uploader("Upload CSV file", type="csv")
@@ -27,29 +29,32 @@ def categorize(title):
     else:
         return "ops"
 
-def split_and_prepare(df, base_name):
-    split_files = {}
-    distribution = {account: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0} for account in accounts}
-    for group in df['group'].unique():
-        group_df = df[df['group'] == group].reset_index(drop=True)
-        chunks = [group_df[i::5] for i in range(5)]
-        for i, account in enumerate(accounts):
-            chunk = chunks[i].drop(columns=['group'])
-            filename = f"{base_name} - {group} - {account}.csv"
-            split_files[filename] = chunk
-            distribution[account][group] += len(chunk)
-            distribution[account]["total"] += len(chunk)
-    return split_files, distribution
+def balanced_distribution(df):
+    df = df.sample(frac=1).reset_index(drop=True)  # shuffle for fairness
+    distribution = defaultdict(lambda: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0})
+    output = {account: [] for account in accounts}
+
+    # Sort by group for tracking group counts later
+    grouped = df.groupby("group")
+    rows = df.to_dict(orient="records")
+
+    for i, row in enumerate(rows):
+        account = accounts[i % len(accounts)]
+        output[account].append(row)
+        distribution[account][row["group"]] += 1
+        distribution[account]["total"] += 1
+
+    return output, distribution
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
-    base_name = os.path.splitext(uploaded_file.name)[0]  # remove .csv extension
+    base_name = os.path.splitext(uploaded_file.name)[0]
 
     if 'Job Title' not in df.columns:
         st.error("CSV must have a 'Job Title' column.")
     else:
         df['group'] = df['Job Title'].apply(categorize)
-        output_files, distribution = split_and_prepare(df, base_name)
+        output_map, distribution = balanced_distribution(df)
 
         st.success("Files processed! Download your 15 split files below:")
 
@@ -63,7 +68,12 @@ if uploaded_file:
         for account in accounts:
             st.markdown(f"- **{account.capitalize()}**: {distribution[account]['total']} (PM: {distribution[account]['pm']}, OPEX/CI: {distribution[account]['opex ci']}, OPS: {distribution[account]['ops']})")
 
-        for filename, data in output_files.items():
-            buffer = io.BytesIO()
-            data.to_csv(buffer, index=False)
-            st.download_button(label=f"Download {filename}", data=buffer.getvalue(), file_name=filename, mime="text/csv")
+        for account, rows in output_map.items():
+            output_df = pd.DataFrame(rows).drop(columns=['group'])
+            for group in ["pm", "opex ci", "ops"]:
+                group_df = pd.DataFrame([r for r in rows if r["group"] == group])
+                if not group_df.empty:
+                    filename = f"{base_name} - {group} - {account}.csv"
+                    buffer = io.BytesIO()
+                    group_df.drop(columns=['group']).to_csv(buffer, index=False)
+                    st.download_button(label=f"Download {filename}", data=buffer.getvalue(), file_name=filename, mime="text/csv")
