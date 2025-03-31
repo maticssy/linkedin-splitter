@@ -10,8 +10,8 @@ st.title("LinkedIn Daily Prospect Splitter")
 st.markdown("""
 Upload your daily CSV file with 80-100 prospects. The app will:
 1. Categorize by job title into PM, OPEX/CI, and OPS.
-2. Distribute all contacts as evenly as possible across 5 LinkedIn accounts: Arun, Assaf, Chen, Leigh, Meirav.
-3. Ensure balanced totals across accounts, even if group sizes vary.
+2. Distribute each group (PM, OPEX/CI, OPS) as evenly as possible across 5 LinkedIn accounts.
+3. Ensure perfectly balanced totals and fair distribution per group.
 4. Provide 15 downloadable CSVs.
 5. Show a summary of the breakdown.
 """)
@@ -29,26 +29,27 @@ def categorize(title):
     else:
         return "ops"
 
-def perfectly_balanced_distribution(df):
-    df = df.sample(frac=1).reset_index(drop=True)  # shuffle
+def split_group_evenly(group_df):
+    group_df = group_df.sample(frac=1).reset_index(drop=True)
+    chunks = [[] for _ in range(len(accounts))]
+    for i, (_, row) in enumerate(group_df.iterrows()):
+        chunks[i % len(accounts)].append(row)
+    return chunks
+
+def fair_distribution(df):
     output = {account: [] for account in accounts}
     distribution = defaultdict(lambda: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0})
 
-    total_rows = len(df)
-    base = total_rows // len(accounts)
-    remainder = total_rows % len(accounts)
-
-    split_sizes = [base + 1 if i < remainder else base for i in range(len(accounts))]
-
-    start = 0
-    for i, account in enumerate(accounts):
-        end = start + split_sizes[i]
-        rows = df.iloc[start:end].to_dict(orient="records")
-        output[account] = rows
-        for row in rows:
-            distribution[account][row["group"]] += 1
-            distribution[account]["total"] += 1
-        start = end
+    for group in ["pm", "opex ci", "ops"]:
+        group_df = df[df['group'] == group]
+        group_chunks = split_group_evenly(group_df)
+        for i, chunk in enumerate(group_chunks):
+            account = accounts[i]
+            for row in chunk:
+                record = row.to_dict()
+                output[account].append(record)
+                distribution[account][group] += 1
+                distribution[account]["total"] += 1
 
     return output, distribution
 
@@ -60,7 +61,7 @@ if uploaded_file:
         st.error("CSV must have a 'Job Title' column.")
     else:
         df['group'] = df['Job Title'].apply(categorize)
-        output_map, distribution = perfectly_balanced_distribution(df)
+        output_map, distribution = fair_distribution(df)
 
         st.success("Files processed! Download your 15 split files below:")
 
