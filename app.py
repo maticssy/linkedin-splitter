@@ -3,7 +3,6 @@ import streamlit as st
 import io
 import os
 import zipfile
-import tempfile
 from collections import defaultdict
 from datetime import datetime
 
@@ -13,8 +12,8 @@ st.title("LinkedIn Daily Prospect Splitter")
 st.markdown("""
 Upload your daily CSV file with 80-100 prospects. The app will:
 1. Categorize by job title into PM, OPEX/CI, and OPS.
-2. Distribute each group as evenly as possible across 5 LinkedIn accounts.
-3. Ensure both fair group splitting AND perfectly balanced totals.
+2. Distribute contacts to maintain equal totals across 5 LinkedIn accounts.
+3. Balance each job title group as evenly as possible.
 4. Provide 15 downloadable CSVs and a bulk ZIP.
 5. Log and display daily upload summary.
 """)
@@ -22,8 +21,6 @@ Upload your daily CSV file with 80-100 prospects. The app will:
 uploaded_file = st.file_uploader("Upload CSV file", type="csv")
 
 accounts = ["arun", "assaf", "chen", "leigh", "meirav"]
-
-log_entries = []
 
 def categorize(title):
     title = str(title).lower()
@@ -34,26 +31,19 @@ def categorize(title):
     else:
         return "ops"
 
-def assign_chunks_balanced(groups):
+def balanced_assignment(groups):
     output = {account: [] for account in accounts}
     distribution = defaultdict(lambda: {"pm": 0, "opex ci": 0, "ops": 0, "total": 0})
-    rotation_offset = 0
 
     for group_name, group_df in groups.items():
         group_df = group_df.sample(frac=1).reset_index(drop=True)
-        chunks = [[] for _ in range(len(accounts))]
-        for i, (_, row) in enumerate(group_df.iterrows()):
-            chunks[i % len(accounts)].append(row)
-
-        for i, chunk in enumerate(chunks):
-            account = accounts[(i + rotation_offset) % len(accounts)]
-            for row in chunk:
-                record = row.to_dict()
-                output[account].append(record)
-                distribution[account][group_name] += 1
-                distribution[account]["total"] += 1
-
-        rotation_offset += 1
+        for _, row in group_df.iterrows():
+            # Find the account with the smallest total so far
+            account = min(accounts, key=lambda acc: distribution[acc]['total'])
+            record = row.to_dict()
+            output[account].append(record)
+            distribution[account][group_name] += 1
+            distribution[account]['total'] += 1
 
     return output, distribution
 
@@ -67,7 +57,7 @@ if uploaded_file:
     else:
         df['group'] = df['Job Title'].apply(categorize)
         groups = {g: df[df['group'] == g] for g in ['pm', 'opex ci', 'ops']}
-        output_map, distribution = assign_chunks_balanced(groups)
+        output_map, distribution = balanced_assignment(groups)
 
         st.success("Files processed! Download your 15 split files below:")
 
